@@ -371,7 +371,12 @@ impl BackendState {
                     tracker.set_finished(ProgressTrackerFinishType::from_err(not_found || result.is_err()));
                     drop(tracker);
 
-                    result?.0.first().map(|v| Arc::new(v.clone()))
+                    let versions = result?;
+                    if content.prefer_release {
+                        versions.0.iter().find(|v| !v.is_prerelease()).map(|v| Arc::new(v.clone()))
+                    } else {
+                        versions.0.first().map(|v| Arc::new(v.clone()))
+                    }
                 };
 
                 drop(permit);
@@ -522,11 +527,13 @@ impl BackendState {
                 let mut is_wrong_version = false;
                 let mut is_wrong_loader = false;
 
+                let page_size = if content.prefer_release { Some(50) } else { Some(1) };
+
                 let mut result = self.meta.fetch(&CurseforgeGetModFilesMetadataItem(&CurseforgeGetModFilesRequest {
                     mod_id: project_id,
                     game_version: content.minecraft_version.into(),
                     mod_loader_type,
-                    page_size: Some(1)
+                    page_size
                 })).await;
 
                 tracker.add_count(1);
@@ -540,7 +547,7 @@ impl BackendState {
                         mod_id: project_id,
                         game_version: content.minecraft_version.into(),
                         mod_loader_type: None,
-                        page_size: Some(1)
+                        page_size
                     })).await;
                     not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
                         result.as_ref().ok().map(|r| r.data.is_empty()).unwrap_or(false);
@@ -555,7 +562,7 @@ impl BackendState {
                         mod_id: project_id,
                         game_version: None,
                         mod_loader_type: None,
-                        page_size: Some(1)
+                        page_size
                     })).await;
                     not_found = matches!(result, Err(MetaLoadError::NonOK(404))) ||
                         result.as_ref().ok().map(|r| r.data.is_empty()).unwrap_or(false);
@@ -571,7 +578,12 @@ impl BackendState {
                 drop(permit);
 
                 let versions = result?;
-                let Some(file) = versions.data.first() else {
+                let file = if content.prefer_release {
+                    versions.data.iter().find(|file| !file.is_prerelease())
+                } else {
+                    versions.data.first()
+                };
+                let Some(file) = file else {
                     return Err(ContentInstallError::UnableToFindVersion);
                 };
 

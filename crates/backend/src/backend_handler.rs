@@ -5,7 +5,7 @@ use bridge::{
     install::{ContentDownload, ContentInstall, ContentInstallFile, ContentInstallPath, InstallTarget}, instance::{ContentFolder, ContentSummary, ContentType, InstanceID}, keep_alive::KeepAlive, message::{AccountCapesResult, AccountSkinResult, BackendConfigWithPassword, EmbeddedOrRaw, GameOutputMsg, LogFiles, MessageToBackend, MessageToFrontend, QuickPlayLaunch}, meta::MetadataResult, modal_action::{ModalAction, ModalActionVisitUrl, ProgressTrackerFinishType}, serial::AtomicOptionSerial
 };
 use futures::TryFutureExt;
-use schema::{auxiliary::AuxiliaryContentMeta, content::{ContentInstallReason, ContentSource}, curseforge::{CurseforgeGetModFilesRequest, CurseforgeModLoaderType}, loader::Loader, minecraft_profile::{MinecraftProfileResponse, SkinVariant}, modrinth::ModrinthLoader, version::{LaunchArgument, LaunchArgumentValue}};
+use schema::{auxiliary::AuxiliaryContentMeta, content::{ContentInstallReason, ContentSource}, curseforge::{CurseforgeGetModFilesRequest, CurseforgeModLoaderType}, loader::Loader, minecraft_profile::{MinecraftProfileResponse, SkinVariant}, modrinth::{ModrinthLoader, ModrinthProjectVersionsRequest}, version::{LaunchArgument, LaunchArgumentValue}};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use tokio::{io::AsyncBufReadExt, sync::{Semaphore, TryAcquireError}};
@@ -489,6 +489,7 @@ impl BackendState {
                     target: InstallTarget::NewInstance { name: Some(name) },
                     loader,
                     minecraft_version: minecraft_version.into(),
+                    prefer_release: false,
                     files: Arc::from([
                         ContentInstallFile {
                             replace_old: None,
@@ -539,7 +540,7 @@ impl BackendState {
                     self.send.send_warning("Cannot modify mods folder while instance is running");
                 }
             },
-            MessageToBackend::UpdateCheck { instance: id, modal_action } => {
+            MessageToBackend::UpdateCheck { instance: id, prefer_release, modal_action } => {
                 let (loader, version) = if let Some(instance) = self.instance_state.write().instances.get_mut(id) {
                     let configuration = instance.configuration.get();
                     (configuration.loader, configuration.minecraft_version)
@@ -616,6 +617,7 @@ impl BackendState {
                     action: ContentUpdateAction,
                 }
 
+                let prefer_release = prefer_release;
                 { // Scope is needed so await doesn't complain about the non-send RwLockReadGuard
                     let sources = self.mod_metadata_manager.read_content_sources();
                     for summary in content.iter() {
@@ -693,6 +695,61 @@ impl BackendState {
                                         }
                                     }
 
+                                    if prefer_release && result.0.is_prerelease() {
+                                        let loaders = match summary.content_summary.extra {
+                                            ContentType::Fabric => Some(Arc::from([ModrinthLoader::Fabric])),
+                                            ContentType::Forge | ContentType::LegacyForge => Some(Arc::from([ModrinthLoader::Forge])),
+                                            ContentType::NeoForge => Some(Arc::from([ModrinthLoader::NeoForge])),
+                                            ContentType::ModrinthModpack { .. } => Some(Arc::from([modrinth_loader])),
+                                            ContentType::ResourcePack => Some(Arc::from([ModrinthLoader::Minecraft])),
+                                            ContentType::ShaderPack => Some(Arc::from([ModrinthLoader::Iris, ModrinthLoader::Optifine, ModrinthLoader::Canvas])),
+                                            _ => Some(Arc::from([modrinth_loader])),
+                                        };
+
+                                        let permit = semaphore.acquire().await.unwrap();
+                                        let versions_result = meta.fetch(&ModrinthProjectVersionsMetadataItem(&ModrinthProjectVersionsRequest {
+                                            project_id: result.0.project_id.clone(),
+                                            game_versions: Some(Arc::new([version.into()])),
+                                            loaders,
+                                        })).await;
+                                        drop(permit);
+
+                                        if let Err(MetaLoadError::NonOK(404)) = versions_result {
+                                            return Ok(ContentUpdateAction::AlreadyUpToDate);
+                                        }
+
+                                        let versions = versions_result?;
+                                        let installed_hash = summary.content_summary.hash;
+
+                                        for mod_version in versions.0.iter() {
+                                            let install_file = mod_version
+                                                .files
+                                                .iter()
+                                                .find(|file| file.primary)
+                                                .unwrap_or(mod_version.files.first().unwrap());
+
+                                            let mut file_hash = [0u8; 20];
+                                            let Ok(_) = hex::decode_to_slice(&*install_file.hashes.sha1, &mut file_hash) else {
+                                                continue;
+                                            };
+
+                                            if file_hash == installed_hash {
+                                                return Ok(ContentUpdateAction::AlreadyUpToDate);
+                                            }
+
+                                            if mod_version.is_prerelease() {
+                                                continue;
+                                            }
+
+                                            return Ok(ContentUpdateAction::Modrinth {
+                                                file: install_file.clone(),
+                                                project_id: mod_version.project_id.clone(),
+                                            });
+                                        }
+
+                                        return Ok(ContentUpdateAction::AlreadyUpToDate);
+                                    }
+
                                     let install_file = result
                                         .0
                                         .files
@@ -734,7 +791,7 @@ impl BackendState {
                                         mod_id: project_id,
                                         game_version: Some(version),
                                         mod_loader_type,
-                                        page_size: Some(1)
+                                        page_size: if prefer_release { Some(50) } else { Some(1) }
                                     })).await;
 
                                     drop(permit);
@@ -746,6 +803,42 @@ impl BackendState {
                                     }
 
                                     let result = result?;
+
+                                    if prefer_release {
+                                        let installed_hash = summary.content_summary.hash;
+
+                                        for file in result.data.iter() {
+                                            if file.mod_id != project_id {
+                                                continue;
+                                            }
+
+                                            let sha1 = file.hashes.iter()
+                                                .find(|hash| hash.algo == 1).map(|hash| &hash.value);
+                                            let Some(sha1) = sha1 else {
+                                                continue;
+                                            };
+
+                                            let mut file_hash = [0u8; 20];
+                                            let Ok(_) = hex::decode_to_slice(&**sha1, &mut file_hash) else {
+                                                continue;
+                                            };
+
+                                            if file_hash == installed_hash {
+                                                return Ok(ContentUpdateAction::AlreadyUpToDate);
+                                            }
+
+                                            if file.is_prerelease() {
+                                                continue;
+                                            }
+
+                                            return Ok(ContentUpdateAction::Curseforge {
+                                                file: file.clone(),
+                                                project_id,
+                                            });
+                                        }
+
+                                        return Ok(ContentUpdateAction::AlreadyUpToDate);
+                                    }
 
                                     let Some(file) = result.data.first() else {
                                         return Ok(ContentUpdateAction::ErrorNotFound);
@@ -875,6 +968,7 @@ impl BackendState {
                                 target: InstallTarget::Instance(id),
                                 loader,
                                 minecraft_version,
+                                prefer_release: false,
                                 files: [ContentInstallFile {
                                     replace_old: Some(mod_summary.path.clone()),
                                     path: bridge::install::ContentInstallPath::Raw(path.into()),
@@ -919,6 +1013,7 @@ impl BackendState {
                                 target: InstallTarget::Instance(id),
                                 loader,
                                 minecraft_version,
+                                prefer_release: false,
                                 files: [ContentInstallFile {
                                     replace_old: Some(mod_summary.path.clone()),
                                     path: bridge::install::ContentInstallPath::Raw(path.into()),
