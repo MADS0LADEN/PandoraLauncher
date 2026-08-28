@@ -6,11 +6,12 @@ on:
       - "**"
     tags-ignore:
       - "**"
+  workflow_dispatch:
 
 jobs:
   build:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         platform:
           - os_name: Linux-x86_64
@@ -41,7 +42,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Install needed packages on Linux
-        run: sudo apt-get update --yes && sudo apt-get install --yes libssl-dev libdbus-1-dev libx11-xcb1 libxkbcommon-x11-dev pkg-config libseccomp-dev libfontconfig-dev
+        run: sudo apt-get update --yes && sudo apt-get install --yes libssl-dev libdbus-1-dev libx11-xcb1 libxkbcommon-x11-dev pkg-config libseccomp-dev libfontconfig-dev libudev-dev
         if: contains(matrix.platform.os, 'ubuntu')
 
       - name: Install mold linker
@@ -49,3 +50,22 @@ jobs:
 
       - name: Run build command
         run: cargo build --release --frozen --target ${{ matrix.platform.target }}
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          src="target/${{ matrix.platform.target }}/release/pandora_launcher${{ matrix.platform.binext }}"
+          dest="dist/PandoraLauncher-${{ matrix.platform.os_name }}${{ matrix.platform.binext }}"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            strip "$src"
+          fi
+          cp "$src" "$dest"
+          chmod +x "$dest"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PandoraLauncher-${{ matrix.platform.os_name }}
+          path: dist/PandoraLauncher-${{ matrix.platform.os_name }}${{ matrix.platform.binext }}
+          if-no-files-found: error
