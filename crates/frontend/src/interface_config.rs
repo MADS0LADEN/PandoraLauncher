@@ -52,6 +52,8 @@ pub struct InterfaceConfig {
     pub content_install_latest: bool,
     #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub content_filter_version: bool,
+    #[serde(default, deserialize_with = "schema::try_deserialize")]
+    pub content_filter_release_only: bool,
     #[serde(default = "default_modrinth_project_type", deserialize_with = "schema::try_deserialize")]
     pub modrinth_page_project_type: ModrinthProjectType,
     #[serde(default = "default_curseforge_class_id", deserialize_with = "schema::try_deserialize")]
@@ -179,6 +181,7 @@ impl Default for InterfaceConfig {
             instance_shaders_sort_enabled_first: Default::default(),
             content_install_latest: true,
             content_filter_version: Default::default(),
+            content_filter_release_only: Default::default(),
             modrinth_page_project_type: default_modrinth_project_type(),
             curseforge_page_class_id: default_curseforge_class_id(),
             hide_main_window_on_launch: false,

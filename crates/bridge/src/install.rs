@@ -20,6 +20,9 @@ pub struct ContentInstall {
     pub loader: Loader,
     pub minecraft_version: Ustr,
     pub files: Arc<[ContentInstallFile]>,
+    /// When true, auto-selected Modrinth/CurseForge versions skip alpha and beta.
+    /// Explicit version ids and direct file URLs are unchanged.
+    pub prefer_release: bool,
 }
 
 #[derive(Debug, Clone)]

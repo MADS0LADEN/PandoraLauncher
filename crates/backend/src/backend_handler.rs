@@ -617,7 +617,6 @@ impl BackendState {
                     action: ContentUpdateAction,
                 }
 
-                let prefer_release = prefer_release;
                 { // Scope is needed so await doesn't complain about the non-send RwLockReadGuard
                     let sources = self.mod_metadata_manager.read_content_sources();
                     for summary in content.iter() {
@@ -722,6 +721,9 @@ impl BackendState {
                                         let installed_hash = summary.content_summary.hash;
 
                                         for mod_version in versions.0.iter() {
+                                            if mod_version.files.is_empty() {
+                                                continue;
+                                            }
                                             let install_file = mod_version
                                                 .files
                                                 .iter()

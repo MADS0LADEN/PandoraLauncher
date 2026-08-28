@@ -1187,6 +1187,7 @@ impl BackendState {
                 target: bridge::install::InstallTarget::Library,
                 loader,
                 minecraft_version,
+                prefer_release: false,
                 files: content_install_files.into(),
             };
 

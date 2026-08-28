@@ -190,6 +190,31 @@ impl CurseforgeReleaseType {
             _ => Self::Other,
         }
     }
+
+    pub fn is_prerelease(self) -> bool {
+        matches!(self, Self::Alpha | Self::Beta)
+    }
+}
+
+#[cfg(test)]
+mod release_type_tests {
+    use super::CurseforgeReleaseType;
+
+    #[test]
+    fn prerelease_is_alpha_or_beta() {
+        assert!(!CurseforgeReleaseType::Release.is_prerelease());
+        assert!(CurseforgeReleaseType::Beta.is_prerelease());
+        assert!(CurseforgeReleaseType::Alpha.is_prerelease());
+        assert!(!CurseforgeReleaseType::Other.is_prerelease());
+        assert!(CurseforgeReleaseType::from_u32(2).is_prerelease());
+        assert!(!CurseforgeReleaseType::from_u32(1).is_prerelease());
+    }
+}
+
+impl CurseforgeFile {
+    pub fn is_prerelease(&self) -> bool {
+        CurseforgeReleaseType::from_u32(self.release_type).is_prerelease()
+    }
 }
 
 #[derive(enumset::EnumSetType, Default, Debug, Hash, PartialOrd, Ord)]

@@ -258,6 +258,7 @@ pub fn start_update_check(
 
     backend_handle.send(MessageToBackend::UpdateCheck {
         instance,
+        prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
         modal_action: modal_action.clone(),
     });
 

@@ -206,6 +206,7 @@ pub enum MessageToBackend {
     DownloadAllMetadata,
     UpdateCheck {
         instance: InstanceID,
+        prefer_release: bool,
         modal_action: ModalAction
     },
     UpdateContent {

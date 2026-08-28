@@ -245,6 +245,7 @@ impl InstanceContentSubpage {
             target: InstallTarget::Instance(self.instance),
             loader: self.instance_loader,
             minecraft_version: self.instance_version,
+            prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
             files: paths.into_iter().filter_map(|path| {
                 Some(ContentInstallFile {
                     replace_old: None,

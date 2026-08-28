@@ -719,7 +719,7 @@ impl InstallDialog {
                 })
                 .collect();
 
-            if mod_versions.is_empty() {
+            if mod_versions.is_empty() && prefer_release {
                 return v_flex()
                     .gap_2()
                     .child(checkbox)

@@ -249,6 +249,31 @@ pub enum ModrinthVersionType {
     Other,
 }
 
+impl ModrinthVersionType {
+    pub fn is_prerelease(self) -> bool {
+        matches!(self, Self::Alpha | Self::Beta)
+    }
+}
+
+#[cfg(test)]
+mod version_type_tests {
+    use super::ModrinthVersionType;
+
+    #[test]
+    fn prerelease_is_alpha_or_beta() {
+        assert!(!ModrinthVersionType::Release.is_prerelease());
+        assert!(ModrinthVersionType::Beta.is_prerelease());
+        assert!(ModrinthVersionType::Alpha.is_prerelease());
+        assert!(!ModrinthVersionType::Other.is_prerelease());
+    }
+}
+
+impl ModrinthProjectVersion {
+    pub fn is_prerelease(&self) -> bool {
+        self.version_type.is_some_and(ModrinthVersionType::is_prerelease)
+    }
+}
+
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ModrinthVersionStatus {
