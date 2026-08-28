@@ -20,6 +20,7 @@ use crate::{
     entity::{
         DataEntities, instance::InstanceEntry, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult, FrontendMetadataState}
     },
+    interface_config::InterfaceConfig,
     root,
 };
 
@@ -476,6 +477,7 @@ impl InstallDialog {
                         target,
                         loader,
                         minecraft_version: selected_minecraft_version.as_str().into(),
+                        prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
                         files: files.into(),
                     };
 
@@ -653,7 +655,17 @@ impl InstallDialog {
     }
 
     fn render_select_mod_version(&mut self, selected_minecraft_version: &SharedString, selected_loader_string: &SharedString, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let mod_version_select_state = self.mod_version_select_state.get_or_insert_with(|| {
+        let prefer_release = InterfaceConfig::get(cx).content_filter_release_only;
+        let checkbox = Checkbox::new("releases_only")
+            .label(t::instance::content::install::releases_only())
+            .tooltip(t::instance::content::install::releases_only::tooltip())
+            .checked(prefer_release)
+            .on_click(cx.listener(|dialog, value, _, cx| {
+                InterfaceConfig::get_mut(cx).content_filter_release_only = *value;
+                dialog.mod_version_select_state = None;
+            }));
+
+        if self.mod_version_select_state.is_none() {
             let selected_game_version = selected_minecraft_version.as_str();
 
             let selected_loader = if self.single_loader_set.is_some() {
@@ -673,6 +685,9 @@ impl InstallDialog {
                         return None;
                     };
                     if version.files.is_empty() {
+                        return None;
+                    }
+                    if prefer_release && version.is_prerelease() {
                         return None;
                     }
                     let matches_game_version = game_versions.iter().any(|v| v.as_str() == selected_game_version);
@@ -704,6 +719,14 @@ impl InstallDialog {
                 })
                 .collect();
 
+            if mod_versions.is_empty() {
+                return v_flex()
+                    .gap_2()
+                    .child(checkbox)
+                    .child(t::instance::content::load::versions::no_release().into_any_element())
+                    .into_any_element();
+            }
+
             let mut highest_release = None;
             let mut highest_beta = None;
             let mut highest_alpha = None;
@@ -730,15 +753,15 @@ impl InstallDialog {
 
             let highest = highest_release.or(highest_beta).or(highest_alpha);
 
-            cx.new(|cx| {
+            self.mod_version_select_state = Some(cx.new(|cx| {
                 let mut select_state =
                     SelectState::new(SearchableVec::new(mod_versions), None, window, cx).searchable(true);
                 if let Some(index) = highest {
                     select_state.set_selected_index(Some(IndexPath::default().row(index)), window, cx);
                 }
                 select_state
-            })
-        });
+            }));
+        }
 
         let mod_version_prefix = match self.project_type {
             ModrinthProjectType::Mod => format!("{}: ", t::instance::content::version::mod_()),
@@ -748,9 +771,11 @@ impl InstallDialog {
             ModrinthProjectType::Other => format!("{}: ", t::instance::content::version::file()),
         };
 
-        Select::new(mod_version_select_state).title_prefix(mod_version_prefix)
-            .search_placeholder(t::common::search())
-            .into_any_element()
+        let select = Select::new(self.mod_version_select_state.as_ref().unwrap())
+            .title_prefix(mod_version_prefix)
+            .search_placeholder(t::common::search());
+
+        v_flex().gap_2().child(checkbox).child(select).into_any_element()
     }
 }
 

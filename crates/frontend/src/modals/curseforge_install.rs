@@ -19,6 +19,7 @@ use crate::{
     entity::{
         DataEntities, instance::InstanceEntry, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult, FrontendMetadataState}
     },
+    interface_config::InterfaceConfig,
     root,
 };
 
@@ -417,6 +418,7 @@ impl InstallDialog {
                         target,
                         loader,
                         minecraft_version: selected_minecraft_version.as_str().into(),
+                        prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
                         files: files.into(),
                     };
 
@@ -594,6 +596,16 @@ impl InstallDialog {
     }
 
     fn render_select_mod_version(&mut self, selected_minecraft_version: &SharedString, selected_loader_string: &SharedString, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let prefer_release = InterfaceConfig::get(cx).content_filter_release_only;
+        let checkbox = Checkbox::new("releases_only")
+            .label(t::instance::content::install::releases_only())
+            .tooltip(t::instance::content::install::releases_only::tooltip())
+            .checked(prefer_release)
+            .on_click(cx.listener(|dialog, value, _, cx| {
+                InterfaceConfig::get_mut(cx).content_filter_release_only = *value;
+                dialog.mod_version_select_state = None;
+            }));
+
         if self.mod_version_select_state.is_none() {
             let selected_game_version: Ustr = selected_minecraft_version.as_str().into();
 
@@ -625,12 +637,23 @@ impl InstallDialog {
                     return t::instance::content::install::loading_files().into_any_element();
                 },
                 FrontendMetadataResult::Loaded(result) => {
-                    let mod_versions: Vec<ModVersionItem> = result.data.iter().map(|file| {
-                        ModVersionItem {
-                            name: file.file_name.clone().into(),
-                            file: file.clone(),
-                        }
-                    }).collect();
+                    let mod_versions: Vec<ModVersionItem> = result.data.iter()
+                        .filter(|file| !prefer_release || !file.is_prerelease())
+                        .map(|file| {
+                            ModVersionItem {
+                                name: file.file_name.clone().into(),
+                                file: file.clone(),
+                            }
+                        })
+                        .collect();
+
+                    if mod_versions.is_empty() {
+                        return v_flex()
+                            .gap_2()
+                            .child(checkbox)
+                            .child(t::instance::content::load::versions::no_release().into_any_element())
+                            .into_any_element();
+                    }
 
                     let mut highest_release = None;
                     let mut highest_beta = None;
@@ -672,10 +695,11 @@ impl InstallDialog {
             }
         }
 
-        Select::new(self.mod_version_select_state.as_ref().unwrap())
+        let select = Select::new(self.mod_version_select_state.as_ref().unwrap())
             .title_prefix(t::instance::content::filename_prefix())
-            .search_placeholder(t::common::search())
-            .into_any_element()
+            .search_placeholder(t::common::search());
+
+        v_flex().gap_2().child(checkbox).child(select).into_any_element()
     }
 }
 

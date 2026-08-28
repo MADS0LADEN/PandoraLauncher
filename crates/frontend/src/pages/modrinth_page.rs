@@ -734,6 +734,7 @@ impl PrimaryAction {
                     target: InstallTarget::Instance(instance.id),
                     loader,
                     minecraft_version,
+                    prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
                     files: [
                         ContentInstallFile {
                             replace_old: None,
@@ -757,6 +758,7 @@ impl PrimaryAction {
                 let modal_action = ModalAction::default();
                 data.backend_handle.send(MessageToBackend::UpdateCheck {
                     instance: install_for.unwrap(),
+                    prefer_release: InterfaceConfig::get(cx).content_filter_release_only,
                     modal_action: modal_action.clone()
                 });
                 crate::modals::generic::show_notification(window, cx,
@@ -986,6 +988,16 @@ impl Render for ModrinthSearchPage {
             None
         };
 
+        let filter_release_toggle = Button::new("filter_release")
+            .label(t::instance::content::install::releases_only())
+            .outline()
+            .tooltip(t::instance::content::install::releases_only::tooltip())
+            .selected(InterfaceConfig::get(cx).content_filter_release_only)
+            .on_click(cx.listener(|_, _, _, cx| {
+                let cfg = InterfaceConfig::get_mut(cx);
+                cfg.content_filter_release_only = !cfg.content_filter_release_only;
+            }));
+
         let parameters = v_flex()
             .h_full()
             .overflow_y_scrollbar()
@@ -996,6 +1008,7 @@ impl Render for ModrinthSearchPage {
             .child(type_button_group)
             .when_some(loader_button_group, |this, group| this.child(group))
             .when_some(filter_version_toggle, |this, button| this.child(button))
+            .child(filter_release_toggle)
             .child(category)
             .child(sort);
 
